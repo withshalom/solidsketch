@@ -1,0 +1,3 @@
+[submodule "solidcraft"]
+	path = solidcraft
+	url = https://github.com/withshalom/solidcraft

@@ -1,0 +1,20 @@
+[package]
+name = "solidsketch-tools"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+description = "SolidSketch's drawing tools as plain logic: pointer events in, SolidCraft engine commands out."
+publish = false
+
+# No dependencies on purpose: the tools are a state machine that builds command JSON as text, so
+# they build and test anywhere (including wasm) and never reach a UI toolkit or the kernel.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

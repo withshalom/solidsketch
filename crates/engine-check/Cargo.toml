@@ -1,0 +1,16 @@
+[package]
+name = "solidsketch-engine-check"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Runs the commands SolidSketch's tools emit on the real SolidCraft engine."
+
+# Its own workspace root on purpose: this crate pulls in the whole SolidCraft engine, so it is
+# built by CI (and by anyone who has initialised the submodule), not by a plain `cargo test`.
+[workspace]
+
+[dev-dependencies]
+solidcraft-engine = { path = "../../solidcraft/crates/engine" }
+solidsketch-tools = { path = "../tools" }
+serde_json = "1"
