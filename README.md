@@ -1,4 +1,6 @@
-<h1 align="center">SolidSketch</h1>
+<h1 align="center">SolidSketch™</h1>
+
+<p align="center"><sub>by WithShalom Studios</sub></p>
 
 <p align="center">
   <strong>Sketch it. Pull it. Paint it.</strong><br />
@@ -107,7 +109,7 @@ The README pictures come from the prototype: `scripts/render-readme-visuals.py` 
 
 [PLAN.md](PLAN.md) has the phases, the hard problems and the decisions still open.
 
-## Licence and independence
+## Licence, trademark and independence
 
 MIT OR Apache-2.0, at your option ([MIT](LICENSE-MIT), [Apache-2.0](LICENSE-APACHE)), the same as
 SolidCraft, which this project builds on and thanks.
@@ -115,3 +117,7 @@ SolidCraft, which this project builds on and thanks.
 SolidSketch is an independent project. It is not affiliated with, sponsored by or endorsed by Trimble,
 SketchUp, Autodesk, Dassault Systèmes or any other 3D software vendor. Tool names and keys are
 conventional drawing vocabulary; no other product's code, icons or text are used.
+
+SolidSketch™ is a trademark of WithShalom Studios. The open-source licences above cover the code; they
+do not grant any right to use the SolidSketch name or logo. Forks and derivative works should use a
+different name.
