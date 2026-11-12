@@ -80,9 +80,9 @@ application window is the next piece.
 | Piece | State |
 |---|---|
 | Interface design, as a clickable [prototype](docs/prototype/index.html) | Done |
-| Tool logic: Line, Rectangle, Circle, Push/Pull, value box | Done, 50 unit tests |
+| Tool logic: Line, Rectangle, Circle, Push/Pull (faces and drawn profiles), value box | Done, 61 unit tests |
 | Every command the tools emit exists in SolidCraft | Checked by [`scripts/check-command-ids.sh`](scripts/check-command-ids.sh) |
-| The same commands run on the real engine | Written, runs in CI ([`crates/engine-check`](crates/engine-check)) |
+| The same commands run on the real engine | Written (not yet run by the author), runs in CI ([`crates/engine-check`](crates/engine-check)) |
 | Desktop and web app | Next: see [PLAN.md](PLAN.md) |
 
 ## Try it

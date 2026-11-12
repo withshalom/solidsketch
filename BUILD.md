@@ -131,11 +131,15 @@ which is not a shared crate.
   tools feel like drawing, and it feeds `P2` points into `Drawing`.
 - Exit: hover highlights the face under the pointer; clicks snap to endpoints and axes.
 
-### 4. A gap in the tools crate
+### 4. A gap in the tools crate (done)
 
-`PushPull` only emits `solid.offset_face`. A drawn rectangle on the ground is a sketch, not a
-body, so pulling it into a block needs the extrude path. `Command::extrude_new` exists and the
-engine test uses it, but nothing calls it.
+**Status: done.** `PushPull::begin_profile` pulls a drawn profile into a block; `commit` now
+returns the commands in order (`sketch.finish`, `solid.extrude`) and `sketch.finish` is in
+`ENGINE_COMMANDS`. The engine-check test for it is written but has not been run here; CI runs it.
+
+`PushPull` only emitted `solid.offset_face`. A drawn rectangle on the ground is a sketch, not a
+body, so pulling it into a block needs the extrude path. `Command::extrude_new` existed and the
+engine test used it, but nothing called it.
 
 - Add a profile-pull mode to `PushPull`: the host passes "profile" instead of a face, and commit
   emits `sketch.finish` then `solid.extrude`.
