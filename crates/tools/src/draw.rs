@@ -61,11 +61,24 @@ pub struct Drawing {
     points: Vec<P2>,
     cursor: Option<P2>,
     vcb: ValueBox,
+    inside: Option<P2>,
+}
+
+fn midpoint(a: P2, b: P2) -> P2 {
+    P2::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+}
+
+fn mean(points: &[P2]) -> Option<P2> {
+    if points.is_empty() {
+        return None;
+    }
+    let n = points.len() as f64;
+    Some(P2::new(points.iter().map(|p| p.x).sum::<f64>() / n, points.iter().map(|p| p.y).sum::<f64>() / n))
 }
 
 impl Drawing {
     pub fn new(tool: Tool) -> Self {
-        Self { tool, points: Vec::new(), cursor: None, vcb: ValueBox::new() }
+        Self { tool, points: Vec::new(), cursor: None, vcb: ValueBox::new(), inside: None }
     }
 
     pub fn tool(&self) -> Tool {
@@ -80,6 +93,13 @@ impl Drawing {
     /// A shape has been started and not finished.
     pub fn is_drawing(&self) -> bool {
         !self.points.is_empty()
+    }
+
+    /// A point inside the last closed shape this tool finished (a rectangle's centre, a circle's
+    /// centre, a polygon's vertex average), or `None` if the last thing finished was not a closed
+    /// shape. The host uses it to say which profile Push/Pull should take.
+    pub fn last_inside(&self) -> Option<P2> {
+        self.inside
     }
 
     pub fn handle(&mut self, event: Event) -> Output {
@@ -113,10 +133,11 @@ impl Drawing {
         self.vcb.clear();
     }
 
-    fn finish(&mut self, made: Result<Command, ToolError>, commands: &mut Vec<Command>, error: &mut Option<ToolError>) {
+    fn finish(&mut self, made: Result<Command, ToolError>, inside: Option<P2>, commands: &mut Vec<Command>, error: &mut Option<ToolError>) {
         match made {
             Ok(c) => {
                 commands.push(c);
+                self.inside = inside;
                 self.cancel();
             }
             // A slip (a flat rectangle, say) leaves the shape open so the next click can fix it.
@@ -134,18 +155,19 @@ impl Drawing {
             Tool::Line => {
                 if self.points.len() >= 3 && p.dist(anchor) <= CLOSE_DISTANCE {
                     let made = Command::line(&self.points, true);
-                    self.finish(made, commands, error);
+                    let inside = mean(&self.points);
+                    self.finish(made, inside, commands, error);
                 } else if self.points.last().is_none_or(|last| p.dist(*last) > CLOSE_DISTANCE) {
                     self.points.push(p);
                 }
             }
             Tool::Rectangle => {
                 let made = Command::rectangle_two_point(anchor, p);
-                self.finish(made, commands, error);
+                self.finish(made, Some(midpoint(anchor, p)), commands, error);
             }
             Tool::Circle => {
                 let made = Command::circle_center(anchor, anchor.dist(p));
-                self.finish(made, commands, error);
+                self.finish(made, Some(anchor), commands, error);
             }
             _ => {}
         }
@@ -156,7 +178,7 @@ impl Drawing {
             if self.tool == Tool::Line {
                 if self.points.len() >= 2 {
                     let made = Command::line(&self.points, false);
-                    self.finish(made, commands, error);
+                    self.finish(made, None, commands, error);
                 } else {
                     self.cancel();
                 }
@@ -195,14 +217,15 @@ impl Drawing {
                     Some(c) => (if c.x < anchor.x { -1.0 } else { 1.0 }, if c.y < anchor.y { -1.0 } else { 1.0 }),
                     None => (1.0, 1.0),
                 };
-                let made = Command::rectangle_two_point(anchor, P2::new(anchor.x + sx * w, anchor.y + sy * h));
+                let other = P2::new(anchor.x + sx * w, anchor.y + sy * h);
+                let made = Command::rectangle_two_point(anchor, other);
                 self.vcb.clear();
-                self.finish(made, commands, error);
+                self.finish(made, Some(midpoint(anchor, other)), commands, error);
             }
             Tool::Circle => {
                 let made = Command::circle_center(anchor, first);
                 self.vcb.clear();
-                self.finish(made, commands, error);
+                self.finish(made, Some(anchor), commands, error);
             }
             _ => {}
         }

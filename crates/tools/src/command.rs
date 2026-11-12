@@ -10,7 +10,7 @@ use crate::geom::P2;
 /// each id is registered in the SolidCraft engine, so keep one id per line between the markers.
 // BEGIN ENGINE COMMANDS
 pub const ENGINE_COMMANDS: &[&str] =
-    &["sketch.line", "sketch.rectangle.two_point", "sketch.circle.center", "sketch.finish", "solid.extrude", "solid.offset_face"];
+    &["sketch.create", "sketch.line", "sketch.rectangle.two_point", "sketch.circle.center", "sketch.finish", "solid.extrude", "solid.offset_face"];
 // END ENGINE COMMANDS
 
 /// Why a tool could not build a command. Input is never trusted: these are values, not panics.
@@ -114,6 +114,11 @@ impl Command {
         Ok(Command { id: "sketch.circle.center", params: format!("{{\"center\":{c},\"radius\":{r}}}") })
     }
 
+    /// Opens a new sketch on the ground plane (XY), where the drawing tools draw.
+    pub fn create_sketch_ground() -> Command {
+        Command { id: "sketch.create", params: "{\"plane\":\"XY\"}".to_string() }
+    }
+
     /// Closes the sketch being drawn, so its profiles can be extruded.
     pub fn finish_sketch() -> Command {
         Command { id: "sketch.finish", params: "{}".to_string() }
@@ -194,6 +199,11 @@ mod tests {
     fn push_pull_needs_a_face_and_a_distance() {
         assert_eq!(Command::offset_face(&[], 1.0), Err(ToolError::NoFace));
         assert_eq!(Command::offset_face(&[FaceRef::Name("Top".into())], 0.0), Err(ToolError::ZeroSize));
+    }
+
+    #[test]
+    fn a_new_sketch_is_on_the_ground_plane() {
+        assert_eq!(Command::create_sketch_ground(), Command { id: "sketch.create", params: "{\"plane\":\"XY\"}".into() });
     }
 
     #[test]
