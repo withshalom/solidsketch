@@ -83,3 +83,9 @@ jobs:
         run: |
           test -f dist/web/index.html
           if grep -Eq '(src|href)="/[^/]' dist/web/index.html; then echo "root-absolute URLs" >&2; exit 1; fi
+      - name: Keep the built site for a week, so a branch's app can be tried before it is merged
+        uses: actions/upload-artifact@v4
+        with:
+          name: solidsketch-web
+          path: dist/web
+          retention-days: 7
