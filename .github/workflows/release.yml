@@ -1,0 +1,102 @@
+# Builds SolidSketch for the desktop when a version tag is pushed and attaches the files to that
+# tag's GitHub release: Linux (x86_64), Windows (x64) and macOS (Apple silicon). The files carry no
+# version in their names, so releases/latest/download/<name> always gives the newest. The builds are
+# not signed or notarised yet. Modelled on withshalom/draftcraft-app's release.yml.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: windows-x64, os: windows-2022, target: x86_64-pc-windows-msvc }
+          - { name: macos-arm64, os: macos-15, target: aarch64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          submodules: true
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/solidsketch
+          key: ${{ matrix.target }}
+      - name: Build
+        shell: bash
+        run: cargo build --release --manifest-path apps/solidsketch/Cargo.toml --bin solidsketch --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Names without the version, so releases/latest/download/<name> always works.
+          bin="apps/solidsketch/target/${{ matrix.target }}/release"
+          dir="dist/SolidSketch"
+          mkdir -p "$dir"
+          cp README.md LICENSE-MIT LICENSE-APACHE TRADEMARK.md "$dir/"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp "$bin/solidsketch.exe" "$dir/SolidSketch.exe"
+            (cd dist && 7z a -tzip "solidsketch-${{ matrix.name }}.zip" SolidSketch > /dev/null)
+            echo "ASSET=dist/solidsketch-${{ matrix.name }}.zip" >> "$GITHUB_ENV"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp "$bin/solidsketch" "$dir/SolidSketch"
+            (cd dist && zip -qr "solidsketch-${{ matrix.name }}.zip" SolidSketch)
+            echo "ASSET=dist/solidsketch-${{ matrix.name }}.zip" >> "$GITHUB_ENV"
+          else
+            cp "$bin/solidsketch" "$dir/SolidSketch"
+            tar -C dist -czf "dist/solidsketch-${{ matrix.name }}.tar.gz" SolidSketch
+            echo "ASSET=dist/solidsketch-${{ matrix.name }}.tar.gz" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd assets
+          sha256sum * > SHA256SUMS.txt
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "SolidSketch $TAG" --notes "SolidSketch $TAG"
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber ./*

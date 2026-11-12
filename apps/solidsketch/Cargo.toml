@@ -1,0 +1,44 @@
+[package]
+name = "solidsketch"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "SolidSketch: a friendly 3D modeler on the SolidCraft engine. One app for the desktop and the browser."
+default-run = "solidsketch"
+
+# Its own workspace root on purpose, like `crates/engine-check`: it pulls in the whole SolidCraft
+# engine, so CI (and anyone who has initialised the submodule) builds it, not a plain `cargo test`.
+[workspace]
+
+[lib]
+name = "solidsketch_app"
+path = "src/lib.rs"
+
+# The desktop app.
+[[bin]]
+name = "solidsketch"
+path = "src/main.rs"
+
+# The browser app: built by Trunk (`trunk build --release` here), which is how the site is made.
+[[bin]]
+name = "solidsketch-web"
+path = "src/web.rs"
+
+[dependencies]
+solidsketch-tools = { path = "../../crates/tools" }
+solidcraft-engine = { path = "../../solidcraft/crates/engine" }
+solidcraft-viewport = { path = "../../solidcraft/crates/viewport" }
+solidcore-record = { path = "../../solidcraft/solidcore/crates/solidcore-record" }
+egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu"] }
+serde_json = "1"
+log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "wayland", "x11"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement"] }

@@ -36,3 +36,50 @@ jobs:
         with:
           workspaces: crates/engine-check
       - run: cargo test --manifest-path crates/engine-check/Cargo.toml
+
+  app:
+    name: App (native check and lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/solidsketch
+      - run: cargo fmt --check --manifest-path apps/solidsketch/Cargo.toml
+      - run: cargo clippy --manifest-path apps/solidsketch/Cargo.toml --all-targets -- -D warnings
+
+  web:
+    name: Web build (wasm32, Trunk)
+    runs-on: ubuntu-latest
+    env:
+      TRUNK_VERSION: 0.21.14
+      TRUNK_SHA256: f2b4680cd239693a646a2795e4633c625328d7b2a044fbe749fa3a2fe9e7036b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/solidsketch
+          key: web
+      - name: Install Trunk (checksum verified)
+        run: |
+          url="https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz"
+          curl --proto '=https' --proto-redir =https -fsSL -o "$RUNNER_TEMP/trunk.tar.gz" "$url"
+          echo "$TRUNK_SHA256  $RUNNER_TEMP/trunk.tar.gz" | sha256sum -c -
+          tar -xz -C "$HOME/.cargo/bin" -f "$RUNNER_TEMP/trunk.tar.gz" trunk
+      - name: Build the site (not published from here; web-deploy.yml does that from main)
+        working-directory: apps/solidsketch
+        run: trunk build --release
+      - name: The site uses relative URLs
+        run: |
+          test -f dist/web/index.html
+          if grep -Eq '(src|href)="/[^/]' dist/web/index.html; then echo "root-absolute URLs" >&2; exit 1; fi

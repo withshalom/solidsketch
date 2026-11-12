@@ -74,20 +74,36 @@ SolidSketch gets its 3D view without copying it.
 
 ## Status
 
-Early. This repository has the design, the tool logic and the checks that tie it to the engine. The
-application window is the next piece.
+Early. This repository has the design, the tool logic, the checks that tie it to the engine, and a
+first testable app that runs in the browser and on the desktop: draw a shape on the ground, pull it up
+into a block, pull its top face again, orbit around it.
 
 | Piece | State |
 |---|---|
 | Interface design, as a clickable [prototype](docs/prototype/index.html) | Done |
-| Tool logic: Line, Rectangle, Circle, Push/Pull (faces and drawn profiles), value box | Done, 61 unit tests |
+| Tool logic: Line, Rectangle, Circle, Push/Pull (faces, drawn profiles, bosses and pockets), value box, the draw-and-pull loop | Done, 92 unit tests |
 | Every command the tools emit exists in SolidCraft | Checked by [`scripts/check-command-ids.sh`](scripts/check-command-ids.sh) |
 | The same commands run on the real engine | Written (not yet run by the author), runs in CI ([`crates/engine-check`](crates/engine-check)) |
-| Desktop and web app | Next: see [PLAN.md](PLAN.md) |
+| First testable app ([`apps/solidsketch`](apps/solidsketch)): ground drawing, pull into a block, orbit | Written, built by CI; plain look, not the art look yet |
+| Web build, published from `main` | [`web-deploy.yml`](.github/workflows/web-deploy.yml) |
+| Desktop downloads on every version tag | [`release.yml`](.github/workflows/release.yml) |
+| Picking any face on screen, the art look, Rotate, Tape | Next: see [PLAN.md](PLAN.md) |
 
 ## Try it
 
-Open [`docs/prototype/index.html`](docs/prototype/index.html) in a browser. Press `R` and click twice on
+**In the browser:** <https://withshalom.github.io/solidsketch/> is the app built from `main`.
+(Once the repository's Pages setting is on "GitHub Actions" and `main` has the app.)
+
+**On your desktop:** the latest release has `solidsketch-linux-x86_64.tar.gz`,
+`solidsketch-windows-x64.zip` and `solidsketch-macos-arm64.zip` under
+[Releases](https://github.com/withshalom/solidsketch/releases/latest). Unzip and run. The builds are not
+signed yet, so macOS and Windows will ask you to confirm.
+
+In the app: `R` Rectangle, `C` Circle, `L` Line, `P` Push/Pull, `O` Orbit. Click two corners, press `P`,
+drag the shape up. Type a number and press Enter to make it exact. `Ctrl+Z` undoes. Middle-drag orbits
+and the wheel zooms. Push/Pull takes the newest shape (picking any face is next).
+
+The design prototype is a separate page: open [`docs/prototype/index.html`](docs/prototype/index.html) in a browser. Press `R` and click twice on
 the ground, press `P` and drag a top face up, press `B` and click a face. It is a design prototype of
 how the tools feel, not the app.
 
@@ -99,6 +115,8 @@ cd solidsketch
 cargo test                                      # the tools, no other dependencies
 scripts/check-command-ids.sh                    # the engine knows every command we emit
 cargo test --manifest-path crates/engine-check/Cargo.toml   # run them on the engine (large build)
+cargo run --release --manifest-path apps/solidsketch/Cargo.toml   # the desktop app
+cd apps/solidsketch && trunk serve --release    # the browser app (needs: rustup target add wasm32-unknown-unknown; cargo install trunk)
 ```
 
 The README pictures come from the prototype: `scripts/render-readme-visuals.py` (Python with Playwright).
