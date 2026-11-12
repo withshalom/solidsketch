@@ -54,39 +54,81 @@ fn split_top(s: &mut Session) -> (u64, u64, f64) {
     faces_volume(s, "B")
 }
 
+// --- Path A: split the face by the sketch, then offset the patch ---------------------------------
+//
+// Finding (CI run on 2026-11-11): the volumes are right, but a rectangle's four lines are extended
+// across the whole face like cutting lines, so the top splits into 9 pieces (14 faces), not 2. The
+// middle piece happens to be the patch; the other eight are leftovers. These tests pin that
+// behaviour down so a change in SolidCraft shows up here.
+
 #[test]
-fn a_rectangle_patch_splits_the_top_face_in_two() {
+fn a_rectangle_split_extends_its_lines_across_the_face() {
     let mut s = box_with_patch(|s| {
         run(s, &Command::rectangle_two_point(P2::new(10.0, 10.0), P2::new(30.0, 20.0)).unwrap());
     });
     let (faces, kernel, volume) = split_top(&mut s);
-    assert_eq!(faces, 7, "six box faces, the top now in two pieces (kernel count {kernel})");
+    assert_eq!((faces, kernel), (14, 14), "5 untouched faces plus a 3 x 3 grid on the top");
     assert!(close(volume, 24000.0), "{volume}");
 }
 
 #[test]
-fn pulling_a_rectangle_patch_out_grows_four_side_walls() {
+fn the_middle_piece_of_a_rectangle_split_pulls_out_with_the_right_volume() {
     let mut s = box_with_patch(|s| {
         run(s, &Command::rectangle_two_point(P2::new(10.0, 10.0), P2::new(30.0, 20.0)).unwrap());
     });
     split_top(&mut s);
     plain(&mut s, "solid.offset_face", json!({"faces": [PATCH], "distance": 5}));
-    let (faces, kernel, volume) = faces_volume(&mut s, "B");
+    let (faces, _, volume) = faces_volume(&mut s, "B");
     assert!(close(volume, 24000.0 + 20.0 * 10.0 * 5.0), "a 20 x 10 block 5 high on top: {volume}");
-    assert_eq!(faces, 7 + 4, "the raised patch gains four walls (kernel count {kernel})");
+    assert_eq!(faces, 14 + 4, "the raised piece gains four walls, and the eight leftovers stay");
+}
+
+// --- Path B: sketch on the face, then extrude (the engine's own boss and pocket path) -------------
+
+/// A 40 x 30 x 20 box `B` with sketch `OnTop` drawn on its top face, finished.
+fn box_with_sketch_on_top(draw: impl FnOnce(&mut Session)) -> Session {
+    let mut s = Session::default();
+    plain(&mut s, "solid.box", json!({"length": 40, "width": 30, "height": 20, "body_name": "B"}));
+    plain(&mut s, "sketch.create", json!({"plane": {"face": TOP}, "name": "OnTop"}));
+    draw(&mut s);
+    plain(&mut s, "sketch.finish", json!({}));
+    s
 }
 
 #[test]
-fn pushing_a_rectangle_patch_in_cuts_a_pocket() {
-    let mut s = box_with_patch(|s| {
+fn a_rectangle_on_the_top_face_extrudes_into_a_boss() {
+    let mut s = box_with_sketch_on_top(|s| {
         run(s, &Command::rectangle_two_point(P2::new(10.0, 10.0), P2::new(30.0, 20.0)).unwrap());
     });
-    split_top(&mut s);
-    plain(&mut s, "solid.offset_face", json!({"faces": [PATCH], "distance": -3}));
+    plain(&mut s, "solid.extrude", json!({"sketch": "OnTop", "distance": 5, "operation": "join"}));
+    let (faces, kernel, volume) = faces_volume(&mut s, "B");
+    assert!(close(volume, 24000.0 + 20.0 * 10.0 * 5.0), "a 20 x 10 block 5 high on top: {volume}");
+    assert_eq!(faces, 11, "six box faces, the block's four walls and its top (kernel count {kernel})");
+}
+
+#[test]
+fn a_rectangle_on_the_top_face_extrudes_into_a_pocket() {
+    let mut s = box_with_sketch_on_top(|s| {
+        run(s, &Command::rectangle_two_point(P2::new(10.0, 10.0), P2::new(30.0, 20.0)).unwrap());
+    });
+    plain(&mut s, "solid.extrude", json!({"sketch": "OnTop", "distance": 3, "direction": "negative", "operation": "cut"}));
     let (faces, kernel, volume) = faces_volume(&mut s, "B");
     assert!(close(volume, 24000.0 - 20.0 * 10.0 * 3.0), "a 20 x 10 pocket 3 deep: {volume}");
-    assert_eq!(faces, 7 + 4, "the pocket gains four walls (kernel count {kernel})");
+    assert_eq!(faces, 11, "six box faces, the pocket's four walls and its floor (kernel count {kernel})");
 }
+
+#[test]
+fn a_circle_on_the_top_face_extrudes_into_a_boss() {
+    let mut s = box_with_sketch_on_top(|s| {
+        run(s, &Command::circle_center(P2::new(20.0, 15.0), 5.0).unwrap());
+    });
+    plain(&mut s, "solid.extrude", json!({"sketch": "OnTop", "distance": 4, "operation": "join"}));
+    let (_, _, volume) = faces_volume(&mut s, "B");
+    let expect = 24000.0 + std::f64::consts::PI * 25.0 * 4.0;
+    assert!((volume - expect).abs() < 1e-3 * expect, "{volume} vs {expect}");
+}
+
+// --- Path A with a circle: a closed curve that cannot be extended stays an island ----------------
 
 #[test]
 fn pulling_a_circle_patch_out_grows_a_cylinder() {
