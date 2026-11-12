@@ -20,7 +20,7 @@ pub mod view;
 pub use command::{Command, ENGINE_COMMANDS, FaceRef, ToolError};
 pub use draw::{Drawing, Event, Output, Preview};
 pub use geom::P2;
-pub use modeler::Modeler;
+pub use modeler::{DrawPlane, Modeler};
 pub use pushpull::PushPull;
 pub use tool::Tool;
 pub use vcb::ValueBox;

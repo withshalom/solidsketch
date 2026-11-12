@@ -13,10 +13,28 @@ use crate::geom::P2;
 use crate::pushpull::PushPull;
 use crate::tool::Tool;
 
+/// Where the drawing tools draw.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DrawPlane {
+    /// The ground: shapes pull up into new bodies.
+    Ground,
+    /// A face of a body, named by a point on it: shapes pull out as bosses or in as pockets.
+    Face([f64; 3]),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Pulling {
     Profile,
+    FaceProfile,
     FarFace,
+}
+
+/// The face Push/Pull took last: a point on it, and which way its outside points along Z.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FarFace {
+    at: [f64; 3],
+    /// `1.0` when the outside points up, `-1.0` when it points down.
+    outward: f64,
 }
 
 /// The drawing tools and Push/Pull working together.
@@ -29,8 +47,10 @@ pub struct Modeler {
     sketch_open: bool,
     /// A point inside the closed shape waiting to be pulled.
     profile: Option<P2>,
-    /// A point on the far face of the last block (the face Push/Pull took last).
-    far_face: Option<[f64; 3]>,
+    far_face: Option<FarFace>,
+    plane: DrawPlane,
+    /// The plane the open sketch was made on.
+    sketch_plane: DrawPlane,
 }
 
 impl Default for Modeler {
@@ -41,7 +61,16 @@ impl Default for Modeler {
 
 impl Modeler {
     pub fn new() -> Self {
-        Self { drawing: Drawing::new(Tool::Rectangle), pull: PushPull::new(), pulling: None, sketch_open: false, profile: None, far_face: None }
+        Self {
+            drawing: Drawing::new(Tool::Rectangle),
+            pull: PushPull::new(),
+            pulling: None,
+            sketch_open: false,
+            profile: None,
+            far_face: None,
+            plane: DrawPlane::Ground,
+            sketch_plane: DrawPlane::Ground,
+        }
     }
 
     pub fn tool(&self) -> Tool {
@@ -52,6 +81,12 @@ impl Modeler {
     pub fn set_tool(&mut self, tool: Tool) {
         self.cancel_pull();
         self.drawing.set_tool(tool);
+    }
+
+    /// Where the next sketch is drawn. Takes effect when a new sketch opens: a sketch already
+    /// open stays on its own plane.
+    pub fn set_plane(&mut self, plane: DrawPlane) {
+        self.plane = plane;
     }
 
     /// Forget what the engine holds, after an undo or a command that failed: the next shape opens
@@ -107,8 +142,23 @@ impl Modeler {
         if !out.commands.is_empty() {
             let mut commands = Vec::with_capacity(out.commands.len() + 1);
             if !self.sketch_open {
-                commands.push(Command::create_sketch_ground());
-                self.sketch_open = true;
+                let opened = match self.plane {
+                    DrawPlane::Ground => Ok(Command::create_sketch_ground()),
+                    DrawPlane::Face(at) => Command::create_sketch_on_face(&FaceRef::Point(at)),
+                };
+                match opened {
+                    Ok(command) => {
+                        commands.push(command);
+                        self.sketch_open = true;
+                        self.sketch_plane = self.plane;
+                    }
+                    // A face that cannot be named (not a real point) draws nothing.
+                    Err(e) => {
+                        out.commands.clear();
+                        out.error = Some(e);
+                        return out;
+                    }
+                }
             }
             commands.append(&mut out.commands);
             out.commands = commands;
@@ -128,11 +178,19 @@ impl Modeler {
     /// The user pressed to pull. Returns `false` when there is nothing to pull yet.
     pub fn begin_pull(&mut self) -> bool {
         if self.sketch_open && self.profile.is_some() {
-            self.pull.begin_profile();
-            self.pulling = Some(Pulling::Profile);
+            match self.sketch_plane {
+                DrawPlane::Ground => {
+                    self.pull.begin_profile();
+                    self.pulling = Some(Pulling::Profile);
+                }
+                DrawPlane::Face(_) => {
+                    self.pull.begin_face_profile();
+                    self.pulling = Some(Pulling::FaceProfile);
+                }
+            }
             true
-        } else if let Some(p) = self.far_face {
-            self.pull.begin(FaceRef::Point(p));
+        } else if let Some(face) = self.far_face {
+            self.pull.begin(FaceRef::Point(face.at));
             self.pulling = Some(Pulling::FarFace);
             true
         } else {
@@ -144,9 +202,14 @@ impl Modeler {
         self.pull.is_active()
     }
 
-    /// The pointer dragged: `distance` is the pull along Z, up positive.
+    /// The pointer dragged: `distance` is the pull along Z, up positive. (A face whose outside
+    /// points down is pulled out by dragging down: that is worked out here.)
     pub fn drag_pull(&mut self, distance: f64) {
-        self.pull.drag(distance);
+        let outward = match (self.pulling, self.far_face) {
+            (Some(Pulling::FarFace), Some(face)) => face.outward,
+            _ => 1.0,
+        };
+        self.pull.drag(distance * outward);
     }
 
     /// The text for the value box while pulling.
@@ -169,13 +232,22 @@ impl Modeler {
         match target {
             Pulling::Profile => {
                 if let Some(p) = self.profile.take() {
-                    self.far_face = Some([p.x, p.y, distance]);
+                    // Pulled up, the far face is the top; pulled down, the bottom.
+                    self.far_face = Some(FarFace { at: [p.x, p.y, distance], outward: if distance < 0.0 { -1.0 } else { 1.0 } });
+                }
+                self.sketch_open = false;
+            }
+            Pulling::FaceProfile => {
+                if let (Some(p), DrawPlane::Face(base)) = (self.profile.take(), self.sketch_plane) {
+                    // A boss ends on a new top; a pocket on a floor, whose outside points up.
+                    self.far_face = Some(FarFace { at: [p.x, p.y, base[2] + distance], outward: 1.0 });
                 }
                 self.sketch_open = false;
             }
             Pulling::FarFace => {
                 if let Some(face) = &mut self.far_face {
-                    face[2] += distance;
+                    // The face moves along its outside by `distance`.
+                    face.at[2] += distance * face.outward;
                 }
             }
         }
@@ -382,5 +454,76 @@ mod tests {
         for id in all {
             assert!(ENGINE_COMMANDS.contains(&id), "{id} is not listed");
         }
+    }
+
+    #[test]
+    fn pulling_a_block_down_then_further_down_sends_a_positive_offset() {
+        let mut m = Modeler::new();
+        draw_rect(&mut m, p(0.0, 0.0), p(10.0, 10.0));
+        m.begin_pull();
+        m.drag_pull(-5.0);
+        let cmds = m.release_pull().unwrap();
+        assert_eq!(cmds[1].params, "{\"distance\":-5,\"operation\":\"new\"}");
+        // The block hangs below the ground; its bottom face looks down. Dragging down pulls it out.
+        m.begin_pull();
+        m.drag_pull(-2.0);
+        assert_eq!(m.release_pull().unwrap()[0].params, "{\"faces\":[[5,5,-5]],\"distance\":2}");
+        m.begin_pull();
+        m.drag_pull(1.0);
+        assert_eq!(m.release_pull().unwrap()[0].params, "{\"faces\":[[5,5,-7]],\"distance\":-1}");
+    }
+
+    #[test]
+    fn drawing_on_a_face_opens_a_face_sketch_and_pulls_a_boss() {
+        let mut m = Modeler::new();
+        m.set_plane(DrawPlane::Face([5.0, 5.0, 20.0]));
+        let out = {
+            m.click(p(10.0, 10.0));
+            m.click(p(30.0, 20.0))
+        };
+        assert_eq!(out.commands[0].params, "{\"plane\":{\"face\":[5,5,20]}}");
+        m.begin_pull();
+        m.drag_pull(5.0);
+        let cmds = m.release_pull().unwrap();
+        assert_eq!(cmds[1].params, "{\"distance\":5,\"operation\":\"join\"}");
+        // The boss's top is at 25, centred on the rectangle.
+        m.begin_pull();
+        m.drag_pull(1.0);
+        assert_eq!(m.release_pull().unwrap()[0].params, "{\"faces\":[[20,15,25]],\"distance\":1}");
+    }
+
+    #[test]
+    fn pushing_a_face_profile_in_cuts_a_pocket_whose_floor_can_be_pulled() {
+        let mut m = Modeler::new();
+        m.set_plane(DrawPlane::Face([5.0, 5.0, 20.0]));
+        draw_rect(&mut m, p(10.0, 10.0), p(30.0, 20.0));
+        m.begin_pull();
+        m.drag_pull(-3.0);
+        let cmds = m.release_pull().unwrap();
+        assert_eq!(cmds[1].params, "{\"distance\":3,\"direction\":\"negative\",\"operation\":\"cut\"}");
+        m.begin_pull();
+        m.drag_pull(-1.0);
+        assert_eq!(m.release_pull().unwrap()[0].params, "{\"faces\":[[20,15,17]],\"distance\":-1}");
+    }
+
+    #[test]
+    fn an_open_sketch_keeps_its_plane_when_the_plane_changes() {
+        let mut m = Modeler::new();
+        draw_rect(&mut m, p(0.0, 0.0), p(10.0, 10.0));
+        m.set_plane(DrawPlane::Face([1.0, 1.0, 1.0]));
+        m.begin_pull();
+        m.drag_pull(2.0);
+        assert_eq!(m.release_pull().unwrap()[1].params, "{\"distance\":2,\"operation\":\"new\"}");
+    }
+
+    #[test]
+    fn a_face_that_is_not_a_real_point_draws_nothing() {
+        let mut m = Modeler::new();
+        m.set_plane(DrawPlane::Face([f64::NAN, 0.0, 0.0]));
+        m.click(p(0.0, 0.0));
+        let out = m.click(p(5.0, 5.0));
+        assert!(out.commands.is_empty());
+        assert_eq!(out.error, Some(ToolError::NotFinite));
+        assert!(!m.can_pull());
     }
 }

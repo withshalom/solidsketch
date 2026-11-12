@@ -119,6 +119,16 @@ impl Command {
         Command { id: "sketch.create", params: "{\"plane\":\"XY\"}".to_string() }
     }
 
+    /// Opens a new sketch on a face of a body, picked by a point on it. Shapes drawn in it can be
+    /// pulled out of the face (a boss) or pushed into it (a pocket). Only a point names a face here:
+    /// that is what the engine's tests cover.
+    pub fn create_sketch_on_face(face: &FaceRef) -> Result<Command, ToolError> {
+        match face {
+            FaceRef::Point(_) => Ok(Command { id: "sketch.create", params: format!("{{\"plane\":{{\"face\":{}}}}}", face.json()?) }),
+            FaceRef::Name(_) => Err(ToolError::BadValue),
+        }
+    }
+
     /// Closes the sketch being drawn, so its profiles can be extruded.
     pub fn finish_sketch() -> Command {
         Command { id: "sketch.finish", params: "{}".to_string() }
@@ -131,6 +141,24 @@ impl Command {
             return Err(ToolError::ZeroSize);
         }
         Ok(Command { id: "solid.extrude", params: format!("{{\"distance\":{d},\"operation\":\"new\"}}") })
+    }
+
+    /// Extrudes the open sketch profile `distance` out of the face it was drawn on, joining the body.
+    pub fn extrude_join(distance: f64) -> Result<Command, ToolError> {
+        let d = num(distance)?;
+        if distance < MIN_SIZE {
+            return Err(ToolError::ZeroSize);
+        }
+        Ok(Command { id: "solid.extrude", params: format!("{{\"distance\":{d},\"operation\":\"join\"}}") })
+    }
+
+    /// Cuts the open sketch profile `depth` into the body it was drawn on.
+    pub fn extrude_cut(depth: f64) -> Result<Command, ToolError> {
+        let d = num(depth)?;
+        if depth < MIN_SIZE {
+            return Err(ToolError::ZeroSize);
+        }
+        Ok(Command { id: "solid.extrude", params: format!("{{\"distance\":{d},\"direction\":\"negative\",\"operation\":\"cut\"}}") })
     }
 
     /// Push/Pull: moves the picked faces along their normal by `distance` (negative pushes in).
@@ -199,6 +227,26 @@ mod tests {
     fn push_pull_needs_a_face_and_a_distance() {
         assert_eq!(Command::offset_face(&[], 1.0), Err(ToolError::NoFace));
         assert_eq!(Command::offset_face(&[FaceRef::Name("Top".into())], 0.0), Err(ToolError::ZeroSize));
+    }
+
+    #[test]
+    fn a_sketch_on_a_face_is_named_by_a_point_on_it() {
+        let c = Command::create_sketch_on_face(&FaceRef::Point([5.0, 5.0, 20.0])).unwrap();
+        assert_eq!(c, Command { id: "sketch.create", params: "{\"plane\":{\"face\":[5,5,20]}}".into() });
+        assert_eq!(Command::create_sketch_on_face(&FaceRef::Name("Top".into())), Err(ToolError::BadValue));
+        assert_eq!(Command::create_sketch_on_face(&FaceRef::Point([f64::NAN, 0.0, 0.0])), Err(ToolError::NotFinite));
+    }
+
+    #[test]
+    fn boss_and_pocket_match_the_engines_extrude_forms() {
+        assert_eq!(Command::extrude_join(5.0).unwrap().params, "{\"distance\":5,\"operation\":\"join\"}");
+        assert_eq!(Command::extrude_cut(3.0).unwrap().params, "{\"distance\":3,\"direction\":\"negative\",\"operation\":\"cut\"}");
+        for bad in [0.0, -1.0] {
+            assert_eq!(Command::extrude_join(bad), Err(ToolError::ZeroSize));
+            assert_eq!(Command::extrude_cut(bad), Err(ToolError::ZeroSize));
+        }
+        assert_eq!(Command::extrude_join(f64::NAN), Err(ToolError::NotFinite));
+        assert_eq!(Command::extrude_cut(f64::INFINITY), Err(ToolError::NotFinite));
     }
 
     #[test]

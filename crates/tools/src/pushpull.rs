@@ -6,7 +6,9 @@
 //!
 //! - a face of a solid becomes `solid.offset_face`;
 //! - a drawn profile (a closed shape that is still a sketch) becomes `sketch.finish` then
-//!   `solid.extrude`, so pulling a rectangle off the ground gives a block in one gesture.
+//!   `solid.extrude`, so pulling a rectangle off the ground gives a block in one gesture;
+//! - a profile drawn on a face of a body does the same with `join` (pulled out: a boss) or `cut`
+//!   (pushed in: a pocket), which the engine's face-pull test shows leaves no leftover faces.
 
 use crate::command::{Command, FaceRef, ToolError};
 use crate::vcb::{ValueBox, fmt_len};
@@ -15,8 +17,10 @@ use crate::vcb::{ValueBox, fmt_len};
 #[derive(Clone, Debug, PartialEq)]
 enum Target {
     Face(FaceRef),
-    /// The profile of the sketch that is still open.
+    /// The profile of the sketch that is still open, on the ground: always a new body.
     Profile,
+    /// The profile of a sketch drawn on a face of a body: pulled out it is a boss, pushed in a pocket.
+    FaceProfile,
 }
 
 /// A Push/Pull gesture in progress.
@@ -40,6 +44,11 @@ impl PushPull {
     /// The user pressed on the profile of the sketch just drawn (a flat shape, not yet a solid).
     pub fn begin_profile(&mut self) {
         self.start(Target::Profile);
+    }
+
+    /// The user pressed on a profile drawn on a face of a body.
+    pub fn begin_face_profile(&mut self) {
+        self.start(Target::FaceProfile);
     }
 
     fn start(&mut self, target: Target) {
@@ -99,6 +108,9 @@ impl PushPull {
         let commands = match target {
             Target::Face(face) => vec![Command::offset_face(&[face], distance)?],
             Target::Profile => vec![Command::finish_sketch(), Command::extrude_new(distance)?],
+            // The sign of the pull says which: out of the face joins, into it cuts.
+            Target::FaceProfile if distance < 0.0 => vec![Command::finish_sketch(), Command::extrude_cut(-distance)?],
+            Target::FaceProfile => vec![Command::finish_sketch(), Command::extrude_join(distance)?],
         };
         self.cancel();
         Ok(commands)
@@ -303,5 +315,35 @@ mod tests {
         pp.cancel();
         assert!(!pp.is_active());
         assert_eq!(pp.commit(), Err(ToolError::NoFace));
+    }
+
+    #[test]
+    fn a_profile_on_a_face_pulled_out_is_a_boss() {
+        let mut pp = PushPull::new();
+        pp.begin_face_profile();
+        pp.drag(5.0);
+        let v = pp.commit().unwrap();
+        assert_eq!(v.iter().map(|c| c.id).collect::<Vec<_>>(), ["sketch.finish", "solid.extrude"]);
+        assert_eq!(v[1].params, "{\"distance\":5,\"operation\":\"join\"}");
+    }
+
+    #[test]
+    fn a_profile_on_a_face_pushed_in_is_a_pocket() {
+        let mut pp = PushPull::new();
+        pp.begin_face_profile();
+        pp.drag(-3.0);
+        assert_eq!(pp.commit().unwrap()[1].params, "{\"distance\":3,\"direction\":\"negative\",\"operation\":\"cut\"}");
+    }
+
+    #[test]
+    fn a_face_profile_with_no_pull_or_a_bad_number_keeps_the_gesture() {
+        let mut pp = PushPull::new();
+        pp.begin_face_profile();
+        assert_eq!(pp.commit(), Err(ToolError::ZeroSize));
+        for c in "1..".chars() {
+            pp.push_char(c);
+        }
+        assert_eq!(pp.commit(), Err(ToolError::BadValue));
+        assert!(pp.is_active());
     }
 }
