@@ -317,14 +317,15 @@ impl SketchApp {
                         self.fail(Self::explain(&ToolError::NoFace));
                     }
                 }
-                if response.dragged_by(PointerButton::Primary) && self.modeler.is_pulling() {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        // Screen points to picture pixels, then to model units along Z.
-                        let dy = f64::from(pos.y - self.pull_origin_y) * ph as f64 / f64::from(rect.height().max(1.0));
-                        let per_pixel = 2.0 * self.camera.half_height() / ph as f64;
-                        self.modeler.drag_pull(view::pull_distance(dy, per_pixel, self.camera.pitch));
-                        self.readout = self.modeler.pull_readout();
-                    }
+                if response.dragged_by(PointerButton::Primary)
+                    && self.modeler.is_pulling()
+                    && let Some(pos) = response.interact_pointer_pos()
+                {
+                    // Screen points to picture pixels, then to model units along Z.
+                    let dy = f64::from(pos.y - self.pull_origin_y) * ph as f64 / f64::from(rect.height().max(1.0));
+                    let per_pixel = 2.0 * self.camera.half_height() / ph as f64;
+                    self.modeler.drag_pull(view::pull_distance(dy, per_pixel, self.camera.pitch));
+                    self.readout = self.modeler.pull_readout();
                 }
                 if response.drag_stopped() && self.modeler.is_pulling() {
                     self.finish_pull();
