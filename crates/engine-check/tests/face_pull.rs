@@ -22,10 +22,14 @@ fn run(s: &mut Session, c: &Command) -> Value {
     s.execute(c.id, &params).unwrap_or_else(|e| panic!("{} {}: {e}", c.id, c.params))
 }
 
-/// Face count and volume of body `b`.
-fn faces_volume(s: &mut Session, b: &str) -> (u64, f64) {
+/// Merged face count (what a user sees), raw kernel face count, and volume of body `b`.
+///
+/// The kernel count is higher: it counts every piece the kernel keeps, such as the sub-faces of a
+/// face with a hole in it. The merged count is the one that matches how a person would count.
+fn faces_volume(s: &mut Session, b: &str) -> (u64, u64, f64) {
     let m = plain(s, "inspect.measure", json!({ "bodies": [b] }))["bodies"][0].clone();
-    (m["kernel"]["faces"].as_u64().unwrap_or(0), m["volume_mm3"].as_f64().unwrap_or(0.0))
+    let n = |v: &Value| v.as_u64().unwrap_or(0);
+    (n(&m["faces"]), n(&m["kernel"]["faces"]), m["volume_mm3"].as_f64().unwrap_or(0.0))
 }
 
 fn close(a: f64, b: f64) -> bool {
@@ -45,7 +49,7 @@ fn box_with_patch(draw: impl FnOnce(&mut Session)) -> Session {
 const TOP: [f64; 3] = [5.0, 5.0, 20.0]; // on the top face, outside the patch
 const PATCH: [f64; 3] = [20.0, 15.0, 20.0]; // on the top face, inside the patch
 
-fn split_top(s: &mut Session) -> (u64, f64) {
+fn split_top(s: &mut Session) -> (u64, u64, f64) {
     plain(s, "solid.split_face", json!({"faces": [TOP], "body": "B", "sketch": "Patch"}));
     faces_volume(s, "B")
 }
@@ -55,8 +59,8 @@ fn a_rectangle_patch_splits_the_top_face_in_two() {
     let mut s = box_with_patch(|s| {
         run(s, &Command::rectangle_two_point(P2::new(10.0, 10.0), P2::new(30.0, 20.0)).unwrap());
     });
-    let (faces, volume) = split_top(&mut s);
-    assert_eq!(faces, 7, "six box faces, the top now in two pieces");
+    let (faces, kernel, volume) = split_top(&mut s);
+    assert_eq!(faces, 7, "six box faces, the top now in two pieces (kernel count {kernel})");
     assert!(close(volume, 24000.0), "{volume}");
 }
 
@@ -67,9 +71,9 @@ fn pulling_a_rectangle_patch_out_grows_four_side_walls() {
     });
     split_top(&mut s);
     plain(&mut s, "solid.offset_face", json!({"faces": [PATCH], "distance": 5}));
-    let (faces, volume) = faces_volume(&mut s, "B");
+    let (faces, kernel, volume) = faces_volume(&mut s, "B");
     assert!(close(volume, 24000.0 + 20.0 * 10.0 * 5.0), "a 20 x 10 block 5 high on top: {volume}");
-    assert_eq!(faces, 7 + 4, "the raised patch gains four walls");
+    assert_eq!(faces, 7 + 4, "the raised patch gains four walls (kernel count {kernel})");
 }
 
 #[test]
@@ -79,9 +83,9 @@ fn pushing_a_rectangle_patch_in_cuts_a_pocket() {
     });
     split_top(&mut s);
     plain(&mut s, "solid.offset_face", json!({"faces": [PATCH], "distance": -3}));
-    let (faces, volume) = faces_volume(&mut s, "B");
+    let (faces, kernel, volume) = faces_volume(&mut s, "B");
     assert!(close(volume, 24000.0 - 20.0 * 10.0 * 3.0), "a 20 x 10 pocket 3 deep: {volume}");
-    assert_eq!(faces, 7 + 4, "the pocket gains four walls");
+    assert_eq!(faces, 7 + 4, "the pocket gains four walls (kernel count {kernel})");
 }
 
 #[test]
@@ -89,11 +93,11 @@ fn pulling_a_circle_patch_out_grows_a_cylinder() {
     let mut s = box_with_patch(|s| {
         run(s, &Command::circle_center(P2::new(20.0, 15.0), 5.0).unwrap());
     });
-    let (faces, volume) = split_top(&mut s);
+    let (faces, _, volume) = split_top(&mut s);
     assert!(faces >= 7, "the circle splits the top: {faces}");
     assert!(close(volume, 24000.0), "{volume}");
     plain(&mut s, "solid.offset_face", json!({"faces": [PATCH], "distance": 4}));
-    let (_, volume) = faces_volume(&mut s, "B");
+    let (_, _, volume) = faces_volume(&mut s, "B");
     let expect = 24000.0 + std::f64::consts::PI * 25.0 * 4.0;
     assert!((volume - expect).abs() < 1e-3 * expect, "a 5 mm radius, 4 mm tall cylinder on top: {volume} vs {expect}");
 }
